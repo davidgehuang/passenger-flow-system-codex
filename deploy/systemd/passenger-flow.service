@@ -9,9 +9,10 @@ User=passenger
 Group=passenger
 WorkingDirectory=/opt/passenger-flow-codex
 Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin
 Environment=ENV_FILE=/opt/passenger-flow-codex/.env
-ExecStartPre=/usr/bin/node scripts/db-ready.js
-ExecStart=/usr/bin/node app.js
+ExecStartPre=/usr/bin/env node scripts/db-ready.js
+ExecStart=/usr/bin/env node app.js
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=40
