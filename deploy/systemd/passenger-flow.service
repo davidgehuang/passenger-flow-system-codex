@@ -1,0 +1,29 @@
+[Unit]
+Description=Passenger Flow Migration Lab
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=passenger
+Group=passenger
+WorkingDirectory=/opt/passenger-flow
+Environment=NODE_ENV=production
+Environment=ENV_FILE=/opt/passenger-flow/.env
+ExecStartPre=/usr/bin/node scripts/db-ready.js
+ExecStart=/usr/bin/node app.js
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=40
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=passenger-flow
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,46 @@
+{
+  "name": "passenger-flow-system-codex",
+  "version": "0.3.0",
+  "description": "Passenger Flow Management System V2 - Cross-cloud DTS migration lab (AWS RDS MySQL -> TencentDB MySQL)",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "node --watch app.js",
+    "db:init": "node scripts/db-init.js",
+    "db:test": "node scripts/db-test.js",
+    "db:check": "node scripts/db-check.js",
+    "db:generate": "node scripts/generate-test-data.js",
+    "dts:precheck": "node scripts/dts-precheck.js",
+    "migration:marker": "node scripts/migration-marker.js",
+    "load:continuous": "node scripts/continuous-load.js",
+    "db:snapshot": "node scripts/db-snapshot.js",
+    "db:compare": "node scripts/db-compare.js",
+    "lint": "eslint .",
+    "db:seed": "node scripts/seed.js",
+    "db:ready": "node scripts/db-ready.js",
+    "maintenance": "node scripts/maintenance.js",
+    "local:download": "node scripts/download-mysql.js",
+    "local:db": "node scripts/local-runtime.js start",
+    "test": "node --test tests/unit.test.js",
+    "test:integration": "node tests/integration.js",
+    "postinstall": "node scripts/vendor-assets.js",
+    "verify:configured": "node scripts/verify-configured.js",
+    "export:source": "node scripts/export-source.js"
+  },
+  "engines": {
+    "node": ">=22.2.0"
+  },
+  "dependencies": {
+    "bootstrap": "5.3.3",
+    "bootstrap-icons": "1.11.3",
+    "chart.js": "4.4.4",
+    "dotenv": "^16.4.5",
+    "ejs": "^3.1.10",
+    "express": "^4.19.2",
+    "mysql2": "^3.11.3"
+  },
+  "devDependencies": {
+    "eslint": "^9.11.1"
+  },
+  "license": "MIT"
+}

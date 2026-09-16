@@ -1,0 +1,409 @@
+'use strict';
+
+// npm run db:generate -- --target-mb 500
+// 500MB 测试数据生成器：
+//   * 以 information_schema.TABLES 实测大小驱动（±5% 精度），不按固定行数判断
+//   * 300~500 门店、1000~2000 设备、过去 12 个月数据
+//   * 业务规律：工作日/周末、早高峰/午高峰/晚高峰、节假日、城市差异、门店规模差异
+//   * 批量 INSERT 1000 rows/batch，避免巨大单事务
+
+const { parseArgs, buildPool, printHeader, printSection, formatMb, runScript } = require('./lib/common');
+const { randInt, randFloat, pick, uuid } = require('../util/helpers');
+
+// ---------------- 业务规律配置 ----------------
+
+// 营业时间 8:00~21:00，时段系数（午高峰 / 晚高峰）
+const HOUR_FACTORS = {
+  8: 0.5, 9: 0.8, 10: 1.0, 11: 1.2, 12: 1.9, 13: 1.7,
+  14: 1.0, 15: 0.9, 16: 1.0, 17: 1.3, 18: 2.1, 19: 2.2, 20: 1.6,
+};
+const HOUR_SUM = Object.values(HOUR_FACTORS).reduce((s, v) => s + v, 0);
+
+// 基准：每店每天平均事件数（调节此值控制 12 个月总容量，约对应 500MB）
+const BASE_EVENTS_PER_STORE_DAY = 0.95;
+
+// 城市池：一线城市权重 1.5，新一线 1.0，其他 0.6
+const CITIES = [
+  { city: '北京', region: '华北', weight: 1.5 },
+  { city: '上海', region: '华东', weight: 1.5 },
+  { city: '广州', region: '华南', weight: 1.5 },
+  { city: '深圳', region: '华南', weight: 1.5 },
+  { city: '成都', region: '西南', weight: 1.0 },
+  { city: '杭州', region: '华东', weight: 1.0 },
+  { city: '武汉', region: '华中', weight: 1.0 },
+  { city: '重庆', region: '西南', weight: 1.0 },
+  { city: '西安', region: '西北', weight: 1.0 },
+  { city: '南京', region: '华东', weight: 1.0 },
+  { city: '长沙', region: '华中', weight: 0.6 },
+  { city: '郑州', region: '华中', weight: 0.6 },
+  { city: '青岛', region: '华东', weight: 0.6 },
+  { city: '沈阳', region: '东北', weight: 0.6 },
+  { city: '昆明', region: '西南', weight: 0.6 },
+];
+
+const MALLS = ['万达广场店', '龙湖天街店', '银泰城店', '大悦城店', '印象城店', '吾悦广场店', '恒隆广场店', '华润万家店', '永辉超市店', '盒马鲜生店'];
+const BUSINESS_TYPES = ['旗舰超市', '精品超市', '标准超市', '社区超市', '便利店'];
+
+// 节假日放大系数（模拟数据，春节/中秋取公历近似日期）
+const HOLIDAYS = [
+  { m: 1, d: 1, factor: 2.0 }, { m: 1, d: 2, factor: 1.8 }, { m: 1, d: 3, factor: 1.8 },
+  { m: 2, d: 14, factor: 1.9 }, { m: 2, d: 15, factor: 2.5 }, { m: 2, d: 16, factor: 2.2 },
+  { m: 5, d: 1, factor: 2.1 }, { m: 5, d: 2, factor: 1.8 }, { m: 5, d: 3, factor: 1.8 },
+  { m: 6, d: 18, factor: 1.6 },
+  { m: 10, d: 1, factor: 2.4 }, { m: 10, d: 2, factor: 2.2 }, { m: 10, d: 3, factor: 2.2 },
+  { m: 10, d: 4, factor: 2.0 }, { m: 10, d: 5, factor: 2.0 }, { m: 10, d: 6, factor: 1.9 }, { m: 10, d: 7, factor: 1.9 },
+];
+
+function holidayFactor(month, day) {
+  const hit = HOLIDAYS.find((h) => h.m === month && h.d === day);
+  return hit ? hit.factor : 1.0;
+}
+
+function pickCity() {
+  const total = CITIES.reduce((s, c) => s + c.weight, 0);
+  let r = Math.random() * total;
+  for (const c of CITIES) {
+    r -= c.weight;
+    if (r <= 0) return c;
+  }
+  return CITIES[0];
+}
+
+// ---------------- 数据生成 ----------------
+
+function makeLogRow(device, offsetSec) {
+  const status = Math.random() < 0.92 ? 'NORMAL' : pick(['WARNING', 'ERROR']);
+  return [
+    device.device_id,
+    { toSqlString: () => `DATE_SUB(NOW(6), INTERVAL ${offsetSec} SECOND)` },
+    randFloat(5, 80),
+    randFloat(20, 85),
+    randFloat(2, 300),
+    randFloat(30, 70),
+    status,
+    status === 'NORMAL' ? 'regular heartbeat' : 'metrics out of range',
+    JSON.stringify({ generated: 1 }),
+  ];
+}
+
+async function chunkInsert(conn, tableSql, rows, chunkSize = 1000) {
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    await conn.query(tableSql, [rows.slice(i, i + chunkSize)]);
+  }
+}
+
+async function ensureStores(conn, dbName) {
+  const [rows] = await conn.query(`SELECT COUNT(*) AS cnt FROM \`${dbName}\`.stores`);
+  let count = Number(rows[0].cnt);
+  if (count >= 300) {
+    console.log(`门店数量: ${count}（满足 300~500 要求，跳过生成）`);
+    return;
+  }
+  const target = randInt(320, 400);
+  console.log(`门店数量不足（当前 ${count}），生成至 ${target} 家...`);
+  const rowsData = [];
+  let seq = 1000;
+  for (let i = count; i < target; i += 1) {
+    const c = pickCity();
+    rowsData.push([
+      `ST-${seq}`,
+      `${c.city}${pick(MALLS)}`,
+      c.region,
+      c.city,
+      `${c.city}市模拟地址${randInt(1, 999)}号`,
+      pick(BUSINESS_TYPES),
+      `20${randInt(19, 24)}-${String(randInt(1, 12)).padStart(2, '0')}-${String(randInt(1, 28)).padStart(2, '0')}`,
+      Math.random() < 0.92 ? 'ACTIVE' : pick(['MAINTENANCE', 'CLOSED']),
+    ]);
+    seq += 1;
+  }
+  await chunkInsert(
+    conn,
+    `INSERT INTO \`${dbName}\`.stores (store_code, store_name, region, city, address, business_type, opening_date, status) VALUES ?`,
+    rowsData,
+    500
+  );
+  console.log(`已生成门店 ${rowsData.length} 家`);
+}
+
+async function ensureDevices(conn, dbName, stores) {
+  const [rows] = await conn.query(`SELECT COUNT(*) AS cnt FROM \`${dbName}\`.devices`);
+  let count = Number(rows[0].cnt);
+  if (count >= 1000) {
+    console.log(`设备数量: ${count}（满足 1000~2000 要求，跳过生成）`);
+    return;
+  }
+  console.log(`设备数量不足（当前 ${count}），按每店 3~5 台生成...`);
+  const deviceTypes = ['ENTRANCE_CAMERA', 'EXIT_CAMERA', 'FLOW_SENSOR', 'DEPTH_CAMERA'];
+  const rowsData = [];
+  let seq = 1000;
+  for (const s of stores) {
+    const n = randInt(3, 5);
+    for (let j = 0; j < n; j += 1) {
+      rowsData.push([
+        `DV-${seq}`,
+        s.store_id,
+        `${s.store_name.slice(0, 8)}-设备${String(j + 1).padStart(2, '0')}`,
+        pick(deviceTypes),
+        `10.30.${randInt(1, 254)}.${randInt(1, 254)}`,
+        `v${randInt(1, 3)}.${randInt(0, 9)}.${randInt(0, 9)}`,
+        s.opening_date || '2022-01-01',
+        { toSqlString: () => 'DATE_SUB(NOW(6), INTERVAL 60 SECOND)' },
+        Math.random() < 0.85 ? 'ONLINE' : pick(['OFFLINE', 'WARNING', 'MAINTENANCE']),
+      ]);
+      seq += 1;
+    }
+    if (rowsData.length > 1500) break; // 上限保护（1000~2000）
+  }
+  await chunkInsert(
+    conn,
+    `INSERT INTO \`${dbName}\`.devices (device_code, store_id, device_name, device_type, ip_address, firmware_version, install_date, last_online_time, status) VALUES ?`,
+    rowsData,
+    500
+  );
+  console.log(`已生成设备 ${rowsData.length} 台`);
+}
+
+async function getDbSizeBytes(conn, dbName) {
+  const [rows] = await conn.query(
+    `SELECT COALESCE(SUM(DATA_LENGTH + INDEX_LENGTH), 0) AS total FROM information_schema.TABLES WHERE TABLE_SCHEMA = ?`,
+    [dbName]
+  );
+  return Number(rows[0].total);
+}
+
+function progressLine(sizeBytes, targetBytes, events, logs, elapsedMs, rate) {
+  const pct = ((sizeBytes / targetBytes) * 100).toFixed(1);
+  const eta = rate > 0 ? Math.round(((targetBytes - sizeBytes) / rate / 1000) * 1000) : 0;
+  const etaSec = rate > 0 ? Math.round(((targetBytes - sizeBytes) / rate) / 1000) : 0;
+  process.stdout.write(
+    `\r[进度] ${formatMb(sizeBytes)}/${formatMb(targetBytes)} MB (${pct}%) | flow_events=${events.toLocaleString('en-US')} logs=${logs.toLocaleString('en-US')} | ${rate.toFixed(1)} KB/s | 已用 ${(elapsedMs / 1000).toFixed(0)}s | 预计剩余 ${etaSec}s   `
+  );
+  return eta;
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const targetMb = Math.min(Math.max(10, Number(args['target-mb']) || 500), 5000);
+  const targetBytes = targetMb * 1024 * 1024;
+
+  printHeader(`Generate Test Data (target ${targetMb}MB, ±5%)`);
+  const pool = buildPool();
+  const dbName = process.env.DB_NAME || 'passenger_flow';
+
+  try {
+    const conn = await pool.getConnection();
+
+    // 1. 基础数据（门店 + 设备）
+    await ensureStores(conn, dbName);
+    const [storesRows] = await conn.query(`SELECT store_id, store_name, city, opening_date FROM \`${dbName}\`.stores WHERE status = 'ACTIVE'`);
+    const stores = storesRows;
+    await ensureDevices(conn, dbName, stores);
+
+    // 门店设备绑定关系（事件随机绑定到该店设备）
+    const [devicesRows] = await conn.query(
+      `SELECT d.device_id, d.store_id FROM \`${dbName}\`.devices d JOIN \`${dbName}\`.stores s ON s.store_id = d.store_id WHERE s.status = 'ACTIVE'`
+    );
+    const devicesByStore = {};
+    devicesRows.forEach((d) => {
+      if (!devicesByStore[d.store_id]) devicesByStore[d.store_id] = [];
+      devicesByStore[d.store_id].push(d);
+    });
+
+    // 城市权重缓存
+    const cityWeight = {};
+    CITIES.forEach((c) => {
+      cityWeight[c.city] = c.weight;
+    });
+    // 种子门店可能包含未知城市，缺省权重 1.0
+    stores.forEach((s) => {
+      if (!cityWeight[s.city]) cityWeight[s.city] = 1.0;
+    });
+
+    console.log('');
+    console.log(`活跃门店: ${stores.length} | 绑定设备: ${devicesRows.length}`);
+    console.log(`开始生成过去 12 个月客流数据（含工作日/周末/节假日/时段/城市规律）...`);
+    console.log('');
+
+    // 2. 主循环：从 365 天前 -> 今天
+    const sizeStart = await getDbSizeBytes(conn, dbName);
+    let eventsInserted = 0;
+    let logsInserted = 0;
+    let hourlyRows = [];
+    const startedAt = Date.now();
+    let lastProgressAt = startedAt;
+    let lastProgressSize = sizeStart;
+    let round = 1;
+
+    while (round <= 3) {
+      const densityBoost = round === 1 ? 1.0 : 1.0 + 0.4 * (round - 1); // 未达标时提高密度再生成一轮
+      let stopped = false;
+
+      for (let daysAgo = 365; daysAgo >= 0; daysAgo -= 1) {
+        const now = new Date();
+        const dayDate = new Date(now.getTime() - daysAgo * 86400000);
+        const month = dayDate.getMonth() + 1;
+        const day = dayDate.getDate();
+        const dow = dayDate.getDay();
+        const isWeekend = dow === 0 || dow === 6;
+        const hFactor = holidayFactor(month, day);
+        const dayFactor = (isWeekend ? 1.3 : 1.0) * hFactor;
+        const statDate = `${dayDate.getFullYear()}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+        const eventRows = [];
+        const logRows = [];
+
+        for (const store of stores) {
+          const storeScale = 0.6 + ((store.store_id * 37) % 100) / 100; // 门店规模差异（确定性伪随机）
+          const cityW = cityWeight[store.city] || 1.0;
+          const storeDevices = devicesByStore[store.store_id] || [];
+          if (!storeDevices.length) continue;
+
+          const hourlyAgg = {};
+
+          for (const [hourStr, hf] of Object.entries(HOUR_FACTORS)) {
+            const hour = Number(hourStr);
+            const expected = ((BASE_EVENTS_PER_STORE_DAY * densityBoost) / HOUR_SUM) * hf * storeScale * cityW * dayFactor;
+            let count = Math.floor(expected);
+            if (Math.random() < expected - count) count += 1;
+            if (count <= 0) continue;
+
+            for (let k = 0; k < count; k += 1) {
+              const offsetSec = daysAgo * 86400 + (24 - hour) * 3600 + randInt(0, 3599);
+              const device = pick(storeDevices);
+              const direction = Math.random() < 0.55 ? 'IN' : 'OUT';
+              const people = randInt(1, 5);
+              eventRows.push([
+                store.store_id,
+                device.device_id,
+                { toSqlString: () => `DATE_SUB(NOW(6), INTERVAL ${offsetSec} SECOND)` },
+                direction,
+                people,
+                randFloat(80, 99.9),
+                pick(['CAMERA', 'INFRARED', 'FLOW_SENSOR', 'DEPTH_CAMERA']),
+                uuid(),
+                JSON.stringify({ zone: direction === 'IN' ? 'entrance' : 'exit', generated: 1 }),
+              ]);
+
+              const aggKey = hour;
+              if (!hourlyAgg[aggKey]) hourlyAgg[aggKey] = { inCount: 0, outCount: 0, peak: 0 };
+              if (direction === 'IN') hourlyAgg[aggKey].inCount += people;
+              else hourlyAgg[aggKey].outCount += people;
+              hourlyAgg[aggKey].peak += people;
+            }
+          }
+
+          // 设备状态日志：每店每天 2~4 条
+          const logCount = randInt(2, 4);
+          for (let k = 0; k < logCount; k += 1) {
+            const hour = randInt(8, 21);
+            const offsetSec = daysAgo * 86400 + (24 - hour) * 3600 + randInt(0, 3599);
+            logRows.push(makeLogRow(pick(storeDevices), offsetSec));
+          }
+
+          // flow_hourly 聚合行
+          for (const [hour, agg] of Object.entries(hourlyAgg)) {
+            hourlyRows.push([store.store_id, statDate, Number(hour), agg.inCount, agg.outCount, agg.peak]);
+          }
+        }
+
+        // 批量写入（1000 行/批，避免巨大单事务）
+        if (eventRows.length) {
+          await chunkInsert(
+            conn,
+            `INSERT INTO \`${dbName}\`.flow_events (store_id, device_id, event_time, direction, people_count, confidence, sensor_type, trace_id, metadata) VALUES ?`,
+            eventRows
+          );
+          eventsInserted += eventRows.length;
+        }
+        if (logRows.length) {
+          await chunkInsert(
+            conn,
+            `INSERT INTO \`${dbName}\`.device_status_logs (device_id, log_time, cpu_usage, memory_usage, network_latency, temperature, status, message, metadata) VALUES ?`,
+            logRows
+          );
+          logsInserted += logRows.length;
+        }
+        if (hourlyRows.length >= 1000) {
+          await chunkInsert(
+            conn,
+            `INSERT INTO \`${dbName}\`.flow_hourly (store_id, stat_date, stat_hour, in_count, out_count, peak_count) VALUES ?
+             ON DUPLICATE KEY UPDATE in_count = VALUES(in_count) + in_count, out_count = VALUES(out_count) + out_count, peak_count = VALUES(peak_count) + peak_count`,
+            hourlyRows
+          );
+          hourlyRows = [];
+        }
+
+        // 每 5 天输出进度（information_schema 实测）
+        if (daysAgo % 5 === 0) {
+          const sizeNow = await getDbSizeBytes(conn, dbName);
+          const elapsedMs = Date.now() - lastProgressAt;
+          const rate = elapsedMs > 0 ? (sizeNow - lastProgressSize) / (elapsedMs / 1000) : 0; // bytes/s
+          progressLine(sizeNow - sizeStart, targetBytes, eventsInserted, logsInserted, Date.now() - startedAt, rate / 1024);
+          lastProgressSize = sizeNow;
+          lastProgressAt = Date.now();
+
+          // ±5% 达标判断
+          if (sizeNow - sizeStart >= targetBytes * 0.95) {
+            stopped = true;
+            break;
+          }
+          if (sizeNow - sizeStart >= targetBytes * 1.05) {
+            stopped = true;
+            break;
+          }
+        }
+      }
+
+      if (stopped) break;
+
+      const sizeNow = await getDbSizeBytes(conn, dbName);
+      const grown = sizeNow - sizeStart;
+      if (grown >= targetBytes * 0.95) break;
+
+      console.log('');
+      console.log(`[WARN] 12 个月数据生成完毕仅 ${formatMb(grown)}MB，未达 ${formatMb(targetBytes * 0.95)}MB，提高密度进行第 ${round + 1} 轮...`);
+      round += 1;
+    }
+
+    // flush 剩余 hourly
+    if (hourlyRows.length) {
+      await chunkInsert(
+        conn,
+        `INSERT INTO \`${dbName}\`.flow_hourly (store_id, stat_date, stat_hour, in_count, out_count, peak_count) VALUES ?
+         ON DUPLICATE KEY UPDATE in_count = VALUES(in_count) + in_count, out_count = VALUES(out_count) + out_count, peak_count = VALUES(peak_count) + peak_count`,
+        hourlyRows
+      );
+    }
+
+    // 3. 汇总
+    const sizeEnd = await getDbSizeBytes(conn, dbName);
+    const [flowCount] = await conn.query(`SELECT COUNT(*) AS cnt FROM \`${dbName}\`.flow_events`);
+    const [logCountRows] = await conn.query(`SELECT COUNT(*) AS cnt FROM \`${dbName}\`.device_status_logs`);
+    const [storeCount] = await conn.query(`SELECT COUNT(*) AS cnt FROM \`${dbName}\`.stores`);
+    const [deviceCount] = await conn.query(`SELECT COUNT(*) AS cnt FROM \`${dbName}\`.devices`);
+
+    conn.release();
+
+    console.log('');
+    console.log('');
+    printSection('生成完成汇总');
+    console.log(`  门店数量:            ${storeCount[0].cnt}`);
+    console.log(`  设备数量:            ${deviceCount[0].cnt}`);
+    console.log(`  flow_events 行数:    ${flowCount[0].cnt.toLocaleString('en-US')}`);
+    console.log(`  device_status_logs:  ${logCountRows[0].cnt.toLocaleString('en-US')}`);
+    console.log(`  本次新增事件:        ${eventsInserted.toLocaleString('en-US')}`);
+    console.log(`  本次新增日志:        ${logsInserted.toLocaleString('en-US')}`);
+    console.log(`  数据库总大小:        ${formatMb(sizeEnd)} MB（目标 ${targetMb}MB，容忍 ±5%）`);
+    console.log(`  耗时:                ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
+
+    const pct = ((sizeEnd - sizeStart) / targetBytes) * 100;
+    console.log(`  本次容量增长:        ${formatMb(sizeEnd - sizeStart)} MB（目标的 ${pct.toFixed(1)}%）`);
+    console.log('');
+    return 0;
+  } finally {
+    await pool.end();
+  }
+}
+
+runScript(main);
