@@ -104,7 +104,7 @@ node --version
 sudo bash deploy/install.sh
 ```
 
-安装脚本把应用准备到 `/opt/passenger-flow`。服务部署目录和 Git 工作目录可以不同，这是有意设计的：配置和运行数据留在部署目录。按照《使用手册》填写服务器专属 `.env`、验证连接，再启动服务。不要复制 Windows 的 `node_modules`、便携数据库或 `.env.local` 到 Linux。
+安装脚本把应用准备到 `/opt/passenger-flow-codex`。服务部署目录和 Git 工作目录可以不同，这是有意设计的：配置和运行数据留在部署目录。按照《使用手册》填写服务器专属 `.env`、验证连接，再启动服务。不要复制 Windows 的 `node_modules`、便携数据库或 `.env.local` 到 Linux。
 
 首次安装**源端新库**才执行初始化和种子；**DTS 目标端**不得提前生成演示数据。
 
@@ -133,7 +133,7 @@ git pull --ff-only
 git log -1 --oneline
 sudo systemctl stop passenger-flow
 sudo bash deploy/install.sh
-sudo -u passenger env ENV_FILE=/opt/passenger-flow/.env node /opt/passenger-flow/scripts/verify-configured.js
+sudo -u passenger env ENV_FILE=/opt/passenger-flow-codex/.env node /opt/passenger-flow-codex/scripts/verify-configured.js
 sudo systemctl start passenger-flow
 sudo systemctl status passenger-flow --no-pager
 curl -fsS http://127.0.0.1:3030/health

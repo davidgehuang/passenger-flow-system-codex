@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 仅准备应用文件与依赖：不建库、不启动服务、不修改防火墙。
 set -euo pipefail
-APP_DIR="/opt/passenger-flow"
+APP_DIR="${APP_DIR:-/opt/passenger-flow-codex}"
 APP_USER="passenger"
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ $EUID -eq 0 ]] || { echo "请使用 sudo bash deploy/install.sh"; exit 1; }
@@ -21,7 +21,7 @@ mkdir -p "$APP_DIR" /var/lib/passenger
 chown "$APP_USER:$APP_USER" /var/lib/passenger
 if [[ "$SOURCE_DIR" != "$APP_DIR" ]]; then
   if [[ -f "$APP_DIR/package.json" ]]; then
-    BACKUP="/opt/passenger-flow-code-$(date +%Y%m%d-%H%M%S).tar.gz"
+    BACKUP="/opt/passenger-flow-codex-code-$(date +%Y%m%d-%H%M%S).tar.gz"
     tar --exclude='.env*' --exclude='node_modules' --exclude='.local-mysql' --exclude='reports' -czf "$BACKUP" -C "$APP_DIR" .
     echo "原代码备份：$BACKUP"
   fi
@@ -39,4 +39,4 @@ systemctl daemon-reload
 # 配置先写为样例，用户确认端口与现有 Nginx 后再启用。
 install -m 644 "$APP_DIR/deploy/nginx/passenger-flow.conf" /etc/nginx/conf.d/passenger-flow.conf.example
 echo "准备完成。未执行建库、种子生成或服务启动。"
-echo "下一步填写 /opt/passenger-flow/.env，按 docs/使用手册.md 的源端或目标端流程操作。"
+echo "下一步填写 $APP_DIR/.env，按 docs/使用手册.md 的源端或目标端流程操作。"
