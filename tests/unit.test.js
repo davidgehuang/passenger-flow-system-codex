@@ -1,10 +1,11 @@
 'use strict';
-const {test,after}=require('node:test'),assert=require('node:assert/strict');
+const {test,after}=require('node:test'),assert=require('node:assert/strict'),{spawnSync}=require('node:child_process'),path=require('node:path');
 const {parseArgs}=require('../scripts/lib/common');
 const settings=require('../config/settings');
 const {compare}=require('../services/compareService');
 const {canonical,TABLE_LIST}=require('../services/snapshotService');
 const {poolEnd}=require('../config/database');
+const {databaseErrorDetail,databaseErrorHint}=require('../util/database-error');
 after(poolEnd);
 function snapshot(){
   return {formatVersion:2,meta:{consistentSnapshot:true,readOnly:true,runningBatches:0,endpointFingerprint:'source'},
@@ -77,4 +78,20 @@ test('负载启动失败可重试',async()=>{
     device.listForSelection=async()=>[{device_id:1,store_id:1}];
     await engine.start();assert.equal(engine.state,'RUNNING');
   }finally{device.listForSelection=old;await engine.stop();}
+});
+
+test('非回环监听即使配置 Basic Auth 也被拒绝，防止 Node 直接暴露 HTTP 公网',()=>{
+ const probe=spawnSync(process.execPath,['-e',"process.env.BIND_HOST='0.0.0.0';process.env.APP_ENV_NAME='LOCAL';process.env.APP_AUTH_USER='admin';process.env.APP_AUTH_PASSWORD='safe';require('./app');"],{cwd:path.resolve(__dirname,'..'),encoding:'utf8'});
+ assert.notEqual(probe.status,0);assert.match(probe.stderr,/不得直接监听非回环地址/);
+});
+
+test('认证错误提示保留 MySQL 诊断且不输出密码',()=>{
+ const err={code:'ER_ACCESS_DENIED_ERROR',sqlMessage:"Access denied for user 'pflow'@'10.10.10.11' (using password: YES)"};
+ assert.match(databaseErrorDetail(err),/ER_ACCESS_DENIED_ERROR/);assert.match(databaseErrorHint(err),/DB_USER/);
+});
+
+test('AUTO_INIT_SCHEMA 默认启用，并拒绝无效配置',()=>{
+ const old=process.env.AUTO_INIT_SCHEMA;
+ try{delete process.env.AUTO_INIT_SCHEMA;assert.equal(settings.autoInitSchema(),true);process.env.AUTO_INIT_SCHEMA='false';assert.equal(settings.autoInitSchema(),false);process.env.AUTO_INIT_SCHEMA='bad';assert.throws(settings.autoInitSchema,/true 或 false/);}
+ finally{if(old===undefined)delete process.env.AUTO_INIT_SCHEMA;else process.env.AUTO_INIT_SCHEMA=old;}
 });

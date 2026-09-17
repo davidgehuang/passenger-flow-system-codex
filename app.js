@@ -11,9 +11,11 @@ const workload = require('./services/workloadService');
 const app = express();
 const PORT = settings.integer(process.env.PORT, 'PORT', 0, 65535, 3030);
 const HOST = process.env.BIND_HOST || '127.0.0.1';
+const loopbackHost = ['127.0.0.1', 'localhost', '::1'].includes(HOST);
 const cloud = ['AWS', 'TENCENT'].includes(process.env.APP_ENV_NAME);
-if ((cloud || !['127.0.0.1', 'localhost', '::1'].includes(HOST)) &&
-    (!process.env.APP_AUTH_USER || !process.env.APP_AUTH_PASSWORD)) throw new Error('云端或非回环监听必须配置 APP_AUTH_USER 和 APP_AUTH_PASSWORD');
+const publicMode = cloud || !loopbackHost;
+if (publicMode && (!process.env.APP_AUTH_USER || !process.env.APP_AUTH_PASSWORD)) throw new Error('云端或非回环监听必须配置 APP_AUTH_USER 和 APP_AUTH_PASSWORD');
+if (!loopbackHost) throw new Error('应用不得直接监听非回环地址。请保持 BIND_HOST=127.0.0.1，并经受控的 HTTPS 反向代理或负载均衡器对外提供服务');
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.disable('x-powered-by');

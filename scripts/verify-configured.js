@@ -1,5 +1,6 @@
 'use strict';
 const fs=require('fs'),path=require('path');
+const {databaseErrorDetail,databaseErrorHint}=require('../util/database-error');
 require('../config/settings');process.env.MAINTENANCE_MODE='true';
 const db=require('../config/database'),report={startedAt:new Date().toISOString(),mode:'read-only',checks:[]};
 async function main(){
@@ -18,7 +19,7 @@ async function main(){
   report.status='PASS';console.log('只读验证通过: '+report.databaseVersion+'，12 个页面/接口与只读事务。');
  }finally{if(server)await new Promise(r=>server.close(r));await db.poolEnd();}
 }
-main().catch(e=>{report.status='FAIL';report.error=e.code||e.message;console.error(report.error);process.exitCode=1;}).finally(()=>{
+main().catch(e=>{report.status='FAIL';report.error=e.code||e.message;console.error(databaseErrorDetail(e));const hint=databaseErrorHint(e);if(hint)console.error(hint);process.exitCode=1;}).finally(()=>{
  report.finishedAt=new Date().toISOString();const dir=path.resolve(__dirname,'../reports');fs.mkdirSync(dir,{recursive:true});
  const file=path.join(dir,'configured-'+Date.now()+'.json');fs.writeFileSync(file,JSON.stringify(report,null,2));console.log(file);
 });

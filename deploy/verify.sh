@@ -9,5 +9,6 @@ cd "$APP_DIR"
 export ENV_FILE="${ENV_FILE:-$APP_DIR/.env}"
 [[ -f "$ENV_FILE" ]] || { echo "配置文件不存在：$ENV_FILE"; exit 1; }
 node scripts/check-runtime.js
+node scripts/db-ready.js
 node scripts/verify-configured.js
 echo "应用及数据库只读检查通过。完整服务部署还需检查 systemd、访问入口与 TLS。"

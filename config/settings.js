@@ -12,6 +12,14 @@ function integer(value, name, min, max, fallback) {
   }
   return n;
 }
+function boolean(value, name, fallback) {
+  if (value === undefined || value === '') return fallback;
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
+  throw new Error(name + ' 必须是 true 或 false');
+}
+function autoInitSchema() { return boolean(process.env.AUTO_INIT_SCHEMA, 'AUTO_INIT_SCHEMA', true); }
 function dbName() {
   const name = process.env.DB_NAME || 'passenger_flow_codex';
   if (!/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(name)) throw new Error('DB_NAME 只能包含英文字母、数字和下划线，且以字母开头');
@@ -48,4 +56,4 @@ function configurePool(pool) {
   pool.on('connection', conn => { conn.query('SET SESSION time_zone = ?', [process.env.DB_TIME_ZONE || '+08:00']); });
   return pool;
 }
-module.exports = { root, envPath, integer, dbName, options, configurePool, isReadOnly, assertWritable, maintenanceFile };
+module.exports = { root, envPath, integer, boolean, autoInitSchema, dbName, options, configurePool, isReadOnly, assertWritable, maintenanceFile };
