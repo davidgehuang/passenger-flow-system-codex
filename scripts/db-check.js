@@ -45,7 +45,21 @@ async function main() {
        FROM information_schema.TABLES WHERE TABLE_SCHEMA = ?`,
       [dbName]
     );
-    printCheck('Database Size', 'PASS', `${formatMb(sizeRows[0].total)} MB`);
+    printCheck('Table metadata estimate', 'PASS', `${formatMb(sizeRows[0].total)} MB (DATA_LENGTH + INDEX_LENGTH; may be stale)`);
+    try {
+      const [spaceRows] = await conn.query(
+        `SELECT COALESCE(SUM(ts.ALLOCATED_SIZE), 0) AS total
+         FROM information_schema.INNODB_TABLES AS it
+         JOIN information_schema.INNODB_TABLESPACES AS ts ON ts.SPACE = it.SPACE
+         WHERE it.NAME LIKE CONCAT(?, '/%')`,
+        [dbName]
+      );
+      const allocated = Number(spaceRows[0].total);
+      if (allocated > 0) printCheck('InnoDB allocated table space', 'PASS', `${formatMb(allocated)} MB (ALLOCATED_SIZE)`);
+      else printCheck('InnoDB allocated table space', 'WARNING', 'no value returned; use the metadata estimate or CloudWatch');
+    } catch (error) {
+      printCheck('InnoDB allocated table space', 'WARNING', `unavailable (${error.code || 'unsupported'}); metadata estimate remains available`);
+    }
 
     printSection(`每张表统计（共 ${TABLES.length} 张）`);
     console.log(

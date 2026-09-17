@@ -9,7 +9,28 @@ const markers = require('../models/markerModel');
 const stats = require('../models/statsModel');
 const { uuid, randInt, pick, sha256 } = require('../util/helpers');
 const MAX_CUSTOM_ROWS = 200000;
+const DEFAULT_LOGICAL_BYTES_PER_ROW = 512;
 function rowCount(n) { return integer(n,'rows',1,MAX_CUSTOM_ROWS,1000); }
+function generatedMetadata(targetBytes, seed) {
+  const base = { source: 'migration-lab', generator: 'logical-size-v1', logical_payload_bytes: targetBytes, payload: '' };
+  const overhead = Buffer.byteLength(JSON.stringify(base), 'utf8');
+  const payloadLength = Math.max(0, targetBytes - overhead);
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  let state = Number.parseInt(sha256(seed).slice(0, 8), 16) || 1;
+  const chars = new Array(payloadLength);
+  for (let index = 0; index < payloadLength; index += 1) {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    chars[index] = alphabet[state & 63];
+  }
+  return JSON.stringify({ ...base, payload: chars.join('') });
+}
+function generatePlan(targetMB) {
+  const mb = integer(targetMB, 'targetMB', 1, 2000, 10);
+  const targetBytes = mb * 1024 * 1024;
+  const rows = Math.min(MAX_CUSTOM_ROWS, Math.ceil(targetBytes / DEFAULT_LOGICAL_BYTES_PER_ROW));
+  const logicalBytesPerRow = Math.max(DEFAULT_LOGICAL_BYTES_PER_ROW, Math.ceil(targetBytes / rows));
+  return { mb, targetBytes, rows, logicalBytesPerRow, logicalPayloadBytes: rows * logicalBytesPerRow };
+}
 function auditRow(batchUuid, op, before, after) {
   const row=after || before;
   return [batchUuid,op,'flow_events',row.id,row.trace_id,before?JSON.stringify(before):null,after?JSON.stringify(after):null];
@@ -34,9 +55,10 @@ async function chunkTransaction(fn) {
     catch(e){if(attempt>=3 || !['ER_LOCK_DEADLOCK','ER_LOCK_WAIT_TIMEOUT'].includes(e.code))throw e;await new Promise(r=>setTimeout(r,30*(attempt+1)));}
   }
 }
-async function operate(op,n,{label=op,historyDays=0}={}) {
+async function operate(op,n,{label=op,historyDays=0,logicalBytesPerRow=0}={}) {
   assertWritable();
   const total=rowCount(n),started=Date.now();
+  const metadataBytes=integer(logicalBytesPerRow,'logicalBytesPerRow',0,65536,0);
   const available=op==='INSERT'?await devices.listForSelection():[];
   if(op==='INSERT' && !available.length)throw new Error('没有设备，请先执行 npm run db:seed');
   const batchUuid=await batch.create({name:label+' '+total+' rows',operationType:op,targetRows:total});
@@ -52,8 +74,9 @@ async function operate(op,n,{label=op,historyDays=0}={}) {
           if(!selected.length)throw new Error('没有有效的门店设备关联');
           const payload=[];
           for(let i=0;i<count;i++){
-            const d=pick(selected);
-            payload.push([d.store_id,d.device_id,mysql.raw('DATE_SUB(NOW(6), INTERVAL '+randInt(0,integer(historyDays,'historyDays',0,365,0)*86400)+' SECOND)'),Math.random()<0.55?'IN':'OUT',randInt(1,5),99,'CAMERA',uuid(),JSON.stringify({source:'migration-lab'})]);
+            const d=pick(selected), traceId=uuid();
+            const metadata=metadataBytes ? generatedMetadata(metadataBytes, traceId) : JSON.stringify({source:'migration-lab'});
+            payload.push([d.store_id,d.device_id,mysql.raw('DATE_SUB(NOW(6), INTERVAL '+randInt(0,integer(historyDays,'historyDays',0,365,0)*86400)+' SECOND)'),Math.random()<0.55?'IN':'OUT',randInt(1,5),99,'CAMERA',traceId,metadata]);
           }
           await rawQuery('INSERT INTO flow_events (store_id,device_id,event_time,direction,people_count,confidence,sensor_type,trace_id,metadata) VALUES ?',[payload]);
           after=await rawQuery('SELECT * FROM flow_events WHERE trace_id IN (?) ORDER BY id',[payload.map(r=>r[7])]);
@@ -88,8 +111,10 @@ async function operate(op,n,{label=op,historyDays=0}={}) {
       if(op!=='INSERT')cursor=String(result.rows[result.rows.length-1].id);
       sampleIds.push(...result.rows.slice(0,10).map(r=>String(r.id)));
     }
-    await batch.complete(batchUuid,{affectedRows:affected,status:'COMPLETED',notes:'请求 '+total+'，实际不同事件 '+affected});
+    const logicalPayloadBytes=metadataBytes*affected;
+    await batch.complete(batchUuid,{affectedRows:affected,status:'COMPLETED',notes:('请求 '+total+'，实际不同事件 '+affected+(metadataBytes?'；逻辑 metadata '+logicalPayloadBytes+' 字节':''))});
     return {operation:op,batchUuid,requestedRows:total,insertedRows:op==='INSERT'?affected:0,updatedRows:op==='UPDATE'?affected:0,deletedRows:op==='DELETE'?affected:0,
+      logicalBytesPerRow:metadataBytes||undefined,logicalPayloadBytes:metadataBytes?logicalPayloadBytes:undefined,
       deviceLogUpdated:0,minId,maxId,idRange:affected?{minId,maxId}:null,sampleIds,elapsedMs:Date.now()-started,startedAt:new Date(started).toISOString(),endedAt:new Date().toISOString()};
   }catch(e){
     await batch.fail(batchUuid,('已提交事件 '+affected+'；'+e.message).slice(0,500)).catch(()=>{});
@@ -99,15 +124,16 @@ async function operate(op,n,{label=op,historyDays=0}={}) {
 const insertRows=(n,o)=>operate('INSERT',n,o);
 const updateRows=(n,o)=>operate('UPDATE',n,o);
 const deleteRows=(n,o)=>operate('DELETE',n,o);
-async function generateSize(targetMB) {
+async function generateSize(targetMB,{historyDays=0}={}) {
   assertWritable();
-  const mb=integer(targetMB,'targetMB',1,2000,10),maxRows=Math.min(MAX_CUSTOM_ROWS,Math.ceil(mb*1024*1024/512));
-  // 明确有界，容量仅作估算。物理页统计不能作为无限写入循环的停止条件。
-  const before=await stats.databaseSize();
-  const result=await insertRows(maxRows,{label:'GENERATE_ESTIMATE'});
-  const after=await stats.databaseSize();
-  return {...result,operation:'GENERATE',targetMB:mb,estimatedBytesPerRow:512,maxRows,
-    measuredGrowthMB:Number(((after-before)/1048576).toFixed(2)),note:'按估算行大小有界生成；物理统计可能滞后，不承诺容量精度'};
+  const plan=generatePlan(targetMB);
+  const before=await stats.databaseStorage();
+  const result=await insertRows(plan.rows,{label:'GENERATE_LOGICAL_'+plan.mb+'MB',logicalBytesPerRow:plan.logicalBytesPerRow,historyDays});
+  const after=await stats.databaseStorage();
+  return {...result,operation:'GENERATE',targetMB:plan.mb,targetBytes:plan.targetBytes,maxRows:plan.rows,
+    logicalBytesPerRow:plan.logicalBytesPerRow,logicalPayloadBytes:plan.logicalPayloadBytes,
+    measuredTableStorageGrowthMB:Number(((after.bytes-before.bytes)/1048576).toFixed(2)),tableStorageSource:after.source,
+    note:'已写入指定逻辑 metadata 负载；RDS 实例实际可用空间请以 CloudWatch FreeStorageSpace 为准'};
 }
 async function purgeSize(targetMB) {
   const mb=integer(targetMB,'targetMB',1,2000,10);
@@ -116,10 +142,10 @@ async function purgeSize(targetMB) {
 }
 async function createMarker(type,message='',rowReference=null) { assertWritable();return markers.create({type,message,operationType:'MARKER',rowReference}); }
 async function getOverview(){
-  const [dbVersion,dbSize,exactCounts,currentBatch,lastBatches]=await Promise.all([stats.mysqlVersion(),stats.databaseSize(),stats.exactRowCounts(),batch.currentBatch(),batch.latest(1)]);
+  const [dbVersion,storage,exactCounts,currentBatch,lastBatches]=await Promise.all([stats.mysqlVersion(),stats.databaseStorage(),stats.exactRowCounts(),batch.currentBatch(),batch.latest(1)]);
   const last=lastBatches[0];
-  return {environment:process.env.APP_ENV_NAME||'LOCAL',appVersion:process.env.APP_VERSION||'',dbVersion,databaseSizeMB:Number((dbSize/1048576).toFixed(2)),exactCounts,currentBatch,
+  return {environment:process.env.APP_ENV_NAME||'LOCAL',appVersion:process.env.APP_VERSION||'',dbVersion,tableStorageMB:Number((storage.bytes/1048576).toFixed(2)),tableStorageSource:storage.source,tableStorageIsMetadataFallback:storage.isMetadataFallback,exactCounts,currentBatch,
     lastDbOp:last?last.operation_type+' ('+last.status+') @ '+(last.completed_at||last.started_at):'-'};
 }
-async function getMigrationCheckData(){const [dbVersion,dbSize,tableStats]=await Promise.all([stats.mysqlVersion(),stats.databaseSize(),stats.tableStats()]);return {dbVersion,dbSize,tableStats};}
-module.exports={insertRows,updateRows,deleteRows,generateSize,purgeSize,createMarker,getOverview,getMigrationCheckData,MAX_CUSTOM_ROWS,_internal:{sha256,applyHourly}};
+async function getMigrationCheckData(){const [dbVersion,storage,tableStats]=await Promise.all([stats.mysqlVersion(),stats.databaseStorage(),stats.tableStats()]);return {dbVersion,storage,tableStats};}
+module.exports={insertRows,updateRows,deleteRows,generateSize,purgeSize,createMarker,getOverview,getMigrationCheckData,MAX_CUSTOM_ROWS,_internal:{sha256,applyHourly,generatedMetadata,generatePlan}};

@@ -22,14 +22,19 @@ async function main(){
         for(let d=1;d<=perStore;d++)await rawQuery('INSERT INTO devices (device_code,store_id,device_name,status) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE device_id=device_id',['SIM-DV-'+i+'-'+d,s.store_id,'模拟设备'+d,'ONLINE']);
       }
     });
+    if(mb!==null){
+      const result=await lab.generateSize(mb,{historyDays:days});
+      console.log('生成完成：逻辑负载 '+result.logicalPayloadBytes+' 字节；实际 InnoDB 表空间变化 '+result.measuredTableStorageGrowthMB+' MB；来源 '+result.tableStorageSource);
+      return;
+    }
     let done=0;
-    console.log('有界生成 '+total+' 条事件；过去 '+days+' 天；容量为估算值');
+    console.log('有界生成 '+total+' 条事件；过去 '+days+' 天');
     while(done<total){
       const n=Math.min(5000,total-done);
       const r=await lab.insertRows(n,{label:'GENERATE',historyDays:days});done+=r.insertedRows;
       console.log('已完成 '+done+'/'+total);
     }
-    console.log('生成完成；不承诺物理数据库增长精度。');
+    console.log('生成完成。');
   }finally{await poolEnd();}
 }
 runScript(main);

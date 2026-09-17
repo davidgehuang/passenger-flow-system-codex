@@ -14,7 +14,7 @@ const { APP_VERSION, GIT_COMMIT } = require('../util/version');
 
 async function checkPage(req, res, next) {
   try {
-    const { dbVersion, dbSize, tableStats } = await migrationLabService.getMigrationCheckData();
+    const { dbVersion, storage, tableStats } = await migrationLabService.getMigrationCheckData();
     const info = getDbConfigInfo();
     res.render('migration-check', {
       title: 'Migration Check - 企业客流管理系统',
@@ -22,7 +22,9 @@ async function checkPage(req, res, next) {
       info: {
         ...info,
         dbVersion,
-        databaseSizeMB: Number((dbSize / (1024 * 1024)).toFixed(2)),
+        tableStorageMB: Number((storage.bytes / (1024 * 1024)).toFixed(2)),
+        tableStorageSource: storage.source,
+        tableStorageIsMetadataFallback: storage.isMetadataFallback,
       },
       tables: tableStats.map((t) => ({
         name: t.table_name,

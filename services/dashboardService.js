@@ -8,13 +8,13 @@ const storeModel = require('../models/storeModel');
 const statsModel = require('../models/statsModel');
 
 async function getSummary() {
-  const [today, peakHour, busiest, deviceCounts, storeCounts, dbSize, dbVersion] = await Promise.all([
+  const [today, peakHour, busiest, deviceCounts, storeCounts, storage, dbVersion] = await Promise.all([
     flowEventModel.todayStats(),
     flowEventModel.peakHourToday(),
     flowEventModel.busiestStoreToday(),
     deviceModel.statusCounts(),
     storeModel.countByStatus(),
-    statsModel.databaseSize().catch(() => 0),
+    statsModel.databaseStorage().catch(() => ({ bytes: 0, source: 'unavailable', isMetadataFallback: true })),
     statsModel.mysqlVersion().catch(() => null),
   ]);
 
@@ -34,7 +34,9 @@ async function getSummary() {
     database: {
       status: dbVersion ? 'UP' : 'DOWN',
       version: dbVersion,
-      sizeMB: Number((dbSize / (1024 * 1024)).toFixed(2)),
+      tableStorageMB: Number((storage.bytes / (1024 * 1024)).toFixed(2)),
+      tableStorageSource: storage.source,
+      tableStorageIsMetadataFallback: storage.isMetadataFallback,
     },
   };
 }

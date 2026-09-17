@@ -27,8 +27,8 @@
             <div class="fw-bold"><%= info.dbVersion || 'N/A' %></div>
           </div></div>
           <div class="col-md-3"><div class="p-2 border rounded bg-light">
-            <div class="text-muted small">Database / Size</div>
-            <div class="fw-bold"><%= info.database %> / <%= info.databaseSizeMB %> MB</div>
+            <div class="text-muted small">Database / Table Space</div>
+            <div class="fw-bold"><%= info.database %> / <%= info.tableStorageMB %> MB</div>
           </div></div>
         </div>
       </div>
@@ -62,7 +62,7 @@
         </table>
       </div>
       <div class="card-footer text-muted small">
-        Row Count 来自 information_schema 统计（近似值）；精确计数请执行 <code>npm run db:check</code>
+        表空间来源：<code><%= info.tableStorageSource %></code><%= info.tableStorageIsMetadataFallback ? '（兼容回退，可能滞后）' : '' %>。Row Count 来自 information_schema 统计（近似值）；精确计数请执行 <code>npm run db:check</code>。
       </div>
     </div>
   </div>

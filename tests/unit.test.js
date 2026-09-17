@@ -95,3 +95,11 @@ test('AUTO_INIT_SCHEMA 默认启用，并拒绝无效配置',()=>{
  try{delete process.env.AUTO_INIT_SCHEMA;assert.equal(settings.autoInitSchema(),true);process.env.AUTO_INIT_SCHEMA='false';assert.equal(settings.autoInitSchema(),false);process.env.AUTO_INIT_SCHEMA='bad';assert.throws(settings.autoInitSchema,/true 或 false/);}
  finally{if(old===undefined)delete process.env.AUTO_INIT_SCHEMA;else process.env.AUTO_INIT_SCHEMA=old;}
 });
+
+test('生成容量计划在 20 万行上限内写入足额逻辑负载',()=>{
+ const {generatePlan,generatedMetadata}=require('../services/migrationLabService')._internal;
+ const plan=generatePlan(100);
+ assert.equal(plan.rows,200000);assert.equal(plan.logicalBytesPerRow,525);assert.ok(plan.logicalPayloadBytes>=100*1024*1024);
+ const payload=generatedMetadata(plan.logicalBytesPerRow,'test-seed');
+ assert.equal(Buffer.byteLength(payload,'utf8'),plan.logicalBytesPerRow);
+});

@@ -54,8 +54,9 @@
             <div class="fw-bold"><%= info.database %></div>
           </div></div>
           <div class="col-6 col-md-2"><div class="p-2 border rounded bg-light h-100">
-            <div class="text-muted small">Database Size</div>
-            <div class="fw-bold"><span id="stat-db-size"><%= overview.databaseSizeMB %></span> MB</div>
+            <div class="text-muted small">InnoDB Table Space</div>
+            <div class="fw-bold"><span id="stat-db-size"><%= overview.tableStorageMB %></span> MB</div>
+            <div class="text-muted small" id="stat-db-size-source"><%= overview.tableStorageSource %><%= overview.tableStorageIsMetadataFallback ? '（可能滞后）' : '' %></div>
           </div></div>
           <div class="col-6 col-md-2"><div class="p-2 border rounded bg-light h-100">
             <div class="text-muted small">Total Rows</div>
@@ -142,10 +143,11 @@
             <button class="btn btn-success lab-btn" data-op="insert" data-custom="insert-custom">执行</button>
           </div>
           <hr class="my-1">
-          <button class="btn btn-outline-primary btn-sm lab-btn" data-op="generate" data-mb="10">Generate +10MB</button>
-          <button class="btn btn-outline-primary btn-sm lab-btn" data-op="generate" data-mb="50">Generate +50MB</button>
-          <button class="btn btn-outline-primary btn-sm lab-btn" data-op="generate" data-mb="100">Generate +100MB</button>
-          <button class="btn btn-outline-primary btn-sm lab-btn" data-op="generate" data-mb="200">Generate +200MB</button>
+          <button class="btn btn-outline-primary btn-sm lab-btn" data-op="generate" data-mb="10">Generate +10 MiB（逻辑负载）</button>
+          <button class="btn btn-outline-primary btn-sm lab-btn" data-op="generate" data-mb="50">Generate +50 MiB（逻辑负载）</button>
+          <button class="btn btn-outline-primary btn-sm lab-btn" data-op="generate" data-mb="100">Generate +100 MiB（逻辑负载）</button>
+          <button class="btn btn-outline-primary btn-sm lab-btn" data-op="generate" data-mb="200">Generate +200 MiB（逻辑负载）</button>
+          <div class="text-muted small">生成目标是写入 metadata 的逻辑负载；单批最多 200,000 行。RDS 整体磁盘请查看 CloudWatch FreeStorageSpace。</div>
         </div>
       </div></div>
 

@@ -39,7 +39,7 @@
     if (op === 'insert') return `INSERT ${params.rows} 行 flow_events`;
     if (op === 'update') return `UPDATE ${params.rows} 行业务数据`;
     if (op === 'delete') return `DELETE ${params.rows} 行 flow_events（不可恢复）`;
-    if (op === 'generate') return `生成约 +${params.targetMB}MB 数据`;
+    if (op === 'generate') return `写入 +${params.targetMB} MiB 逻辑数据负载（最多 200,000 行）`;
     if (op === 'purge') return `删除约 ${params.targetMB}MB 数据（不可恢复）`;
     return op;
   }
@@ -157,7 +157,8 @@
 
       if (overview.exactCounts) {
         const counts = overview.exactCounts;
-        document.getElementById('stat-db-size').textContent = overview.databaseSizeMB;
+        document.getElementById('stat-db-size').textContent = overview.tableStorageMB;
+        document.getElementById('stat-db-size-source').textContent = overview.tableStorageSource + (overview.tableStorageIsMetadataFallback ? '（可能滞后）' : '');
         document.getElementById('stat-total-rows').textContent = Object.values(counts)
           .reduce((s, v) => s + Number(v), 0).toLocaleString('en-US');
         document.getElementById('stat-flow-rows').textContent = Number(counts.flow_events).toLocaleString('en-US');
