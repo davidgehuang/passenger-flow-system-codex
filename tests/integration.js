@@ -105,6 +105,12 @@ async function main(){
     comparison=compare(sourceSnapshot,targetSnapshot());assert.equal(comparison.summary.exitCode,1);check('行数不变的内容篡改被检测');
     await admin.query('ALTER TABLE '+target+'.devices ADD COLUMN extra_test INT NULL');
     comparison=compare(sourceSnapshot,targetSnapshot());assert.equal(comparison.summary.exitCode,1);check('结构差异被检测');
+    delete process.env.MAINTENANCE_MODE;process.env.DB_READ_ONLY='false';
+    const statModel=require('../models/statsModel'),originalStorage=statModel.databaseStorage;
+    statModel.databaseStorage=async()=>{throw Object.assign(new Error('stats only failure'),{code:'STATS_TEST'});};
+    try{const generated=await lab.generateSize(1);assert.equal(generated.insertedRows,2048);assert.equal(generated.storageStatus,'unavailable');}
+    finally{statModel.databaseStorage=originalStorage;}
+    check('容量查询失败不把已成功提交的造数标记为失败');
     report.status='PASS';
   }finally{
     delete process.env.MAINTENANCE_MODE;

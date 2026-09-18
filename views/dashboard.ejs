@@ -19,6 +19,7 @@
     </div>
 
     <p class="text-muted small">统计单位为人次，进店与离店合计不代表去重访客；今日净进店人数不等于实时在店人数。</p>
+    <%- include('partials/databaseStorage') %>
     <!-- 统计卡片 -->
     <div class="row g-3 mb-4" id="stat-cards">
       <div class="col-6 col-md-3"><div class="card stat-card"><div class="card-body">
@@ -53,7 +54,7 @@
       <div class="col-6 col-md-3"><div class="card stat-card"><div class="card-body">
         <div class="stat-label">今日高峰时间</div>
         <div class="stat-value fs-4"><%= summary.peakHour %></div>
-        <div class="stat-sub">表空间: <%= summary.database.tableStorageMB %> MB</div>
+
       </div></div></div>
     </div>
 

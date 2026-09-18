@@ -12,7 +12,7 @@ class WorkloadEngine {
     const percentages=[insertPercent,updatePercent,deletePercent].map(v=>integer(v,'操作比例',0,100,0));
     if(percentages.reduce((a,b)=>a+b,0)!==100)throw Object.assign(new Error('操作比例之和必须为 100'),{status:400});
     this.options={qps:integer(qps,'qps',1,500,20),insertPercent:percentages[0],updatePercent:percentages[1],deletePercent:percentages[2]};
-    const generation=++this.generation;this.state='STARTING';this.lastError=null;this.errors=0;
+    const generation=++this.generation;this.state='STARTING';this.lastError=null;this.errors=0;this.stoppedAt=null;
     this.stats={totalInsert:0,totalUpdate:0,totalDelete:0,successSql:0,failedSql:0,latestId:null,lastOp:null,lastMarkerType:null,startedAt:new Date().toISOString()};
     try{
       const devices=await deviceModel.listForSelection();
@@ -35,7 +35,7 @@ class WorkloadEngine {
     const promise=this._runOperation(op).then(()=>{this.errors=0;}).catch(e=>{
       this.stats.failedSql++;this.lastError=e.message;this.errors++;
       if(this.errors>=30){clearInterval(this.timer);this.timer=null;this.state='ERROR';}
-    }).finally(()=>{this.pending.delete(promise);this.inflight=this.pending.size;});
+    }).finally(()=>{this.pending.delete(promise);this.inflight=this.pending.size;if(this.state==='ERROR'&&!this.pending.size)this.stoppedAt=Date.now();});
     this.pending.add(promise);this.inflight=this.pending.size;
   }
   async _runOperation(op){
@@ -51,12 +51,12 @@ class WorkloadEngine {
     let timeout;
     try{
       await Promise.race([Promise.all([...this.pending]),new Promise((_,reject)=>{timeout=setTimeout(()=>reject(new Error('仍有在途写入，不能宣称已停写')),30000);})]);
-      this.state='STOPPED';return this.getStatus();
+      this.state='STOPPED';this.stoppedAt=this.stoppedAt||Date.now();return this.getStatus();
     }catch(e){this.state='ERROR';this.lastError=e.message;throw e;}finally{clearTimeout(timeout);}
   }
   async refreshMarkerInfo(){if(this.stats)this.stats.lastMarkerType=(await markerModel.stats()).lastType;}
   getStatus(){
-    const runtimeMs=this.stats?Date.now()-Date.parse(this.stats.startedAt):0;
+    const runtimeMs=this.stats?(this.stoppedAt||Date.now())-Date.parse(this.stats.startedAt):0;
     return {state:this.state,options:this.options,inflight:this.pending.size,lastError:this.lastError,
       stats:this.stats?{...this.stats,runtimeMs,actualOpsPerSecond:runtimeMs?Number((this.stats.successSql*1000/runtimeMs).toFixed(2)):0}:null};
   }

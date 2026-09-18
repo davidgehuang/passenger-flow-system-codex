@@ -1,6 +1,6 @@
 {
   "name": "passenger-flow-system-codex",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Passenger Flow Management System V2 - Cross-cloud DTS migration lab (AWS RDS MySQL -> TencentDB MySQL)",
   "main": "app.js",
   "scripts": {
@@ -8,6 +8,7 @@
     "dev": "node --watch app.js",
     "db:init": "node scripts/db-init.js",
     "db:test": "node scripts/db-test.js",
+    "db:storage": "node scripts/db-storage-diagnose.js",
     "db:check": "node scripts/db-check.js",
     "db:generate": "node scripts/generate-test-data.js",
     "dts:precheck": "node scripts/dts-precheck.js",
@@ -21,7 +22,7 @@
     "maintenance": "node scripts/maintenance.js",
     "local:download": "node scripts/download-mysql.js",
     "local:db": "node scripts/local-runtime.js start",
-    "test": "node --test tests/unit.test.js",
+    "test": "node --test tests/unit.test.js tests/storage.test.js",
     "test:integration": "node tests/integration.js",
     "postinstall": "node scripts/vendor-assets.js",
     "verify:configured": "node scripts/verify-configured.js",

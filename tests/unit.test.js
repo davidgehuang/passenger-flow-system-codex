@@ -103,3 +103,14 @@ test('生成容量计划在 20 万行上限内写入足额逻辑负载',()=>{
  const payload=generatedMetadata(plan.logicalBytesPerRow,'test-seed');
  assert.equal(Buffer.byteLength(payload,'utf8'),plan.logicalBytesPerRow);
 });
+
+test('Basic Auth 配置缺一项时拒绝启动，避免无声关闭认证',()=>{
+ const probe=spawnSync(process.execPath,['-e',"process.env.BIND_HOST='127.0.0.1';process.env.APP_ENV_NAME='LOCAL';process.env.APP_AUTH_USER='admin';process.env.APP_AUTH_PASSWORD='';require('./app');"],{cwd:path.resolve(__dirname,'..'),encoding:'utf8'});
+ assert.notEqual(probe.status,0);assert.match(probe.stderr,/必须同时填写/);
+});
+test('负载停止后运行时长固定',async()=>{
+ const {WorkloadEngine}=require('../services/workloadEngine'),engine=new WorkloadEngine();
+ engine.stats={startedAt:new Date(Date.now()-5000).toISOString(),successSql:1};
+ await engine.stop();const first=engine.getStatus().stats.runtimeMs;
+ await new Promise(r=>setTimeout(r,30));assert.equal(engine.getStatus().stats.runtimeMs,first);
+});

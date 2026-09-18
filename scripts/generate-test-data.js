@@ -9,7 +9,7 @@ async function main(){
     assertWritable();
     const args=parseArgs(process.argv.slice(2));
     if(args.rows!==undefined&&args['target-mb']!==undefined)throw new Error('--rows 和 --target-mb 只能选择一个');
-    const mb=args['target-mb']===undefined?null:integer(args['target-mb'],'target-mb',1,5000,10);
+    const mb=args['target-mb']===undefined?null:integer(args['target-mb'],'target-mb',1,2000,10);
     const total=mb===null?integer(args.rows,'rows',1,10000000,2000):Math.ceil(mb*1048576/512);
     const days=integer(args.days,'days',0,365,7),stores=integer(args.stores,'stores',5,500,5);
     const perStore=integer(args['devices-per-store'],'devices-per-store',1,5,4);
@@ -24,7 +24,7 @@ async function main(){
     });
     if(mb!==null){
       const result=await lab.generateSize(mb,{historyDays:days});
-      console.log('生成完成：逻辑负载 '+result.logicalPayloadBytes+' 字节；实际 InnoDB 表空间变化 '+result.measuredTableStorageGrowthMB+' MB；来源 '+result.tableStorageSource);
+      console.log('生成完成：逻辑负载 '+result.logicalPayloadBytes+' 字节；存储引擎估算容量变化 '+result.measuredTableStorageGrowthMB+' MB；来源 '+result.tableStorageSource);
       return;
     }
     let done=0;

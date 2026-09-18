@@ -20,55 +20,40 @@ async function mysqlVersion() {
   return rows[0].version;
 }
 
-// 表元数据统计的总大小（字节）。DATA_LENGTH / INDEX_LENGTH 在部分托管实例上
-// 可能滞后，因此不能将它当作 RDS 实例的实际磁盘占用。
-async function databaseSize() {
-  const rows = await rawQuery(
-    `SELECT COALESCE(SUM(DATA_LENGTH + INDEX_LENGTH), 0) AS total_bytes
-     FROM information_schema.TABLES
-     WHERE TABLE_SCHEMA = ?`,
-    [process.env.DB_NAME || 'passenger_flow_codex']
-  );
-  return Number(rows[0].total_bytes);
-}
-
-// 优先读取 MySQL 8 InnoDB 表空间的已分配字节数。MariaDB 10.3 或权限不足时，
-// 保留原有的 metadata 统计作为明确标注的降级值。
-async function databaseStorage() {
-  const database = process.env.DB_NAME || 'passenger_flow_codex';
-  const metadataBytes = await databaseSize();
-  try {
-    const rows = await rawQuery(
-      `SELECT COALESCE(SUM(ts.ALLOCATED_SIZE), 0) AS allocated_bytes
-       FROM information_schema.INNODB_TABLES AS it
-       JOIN information_schema.INNODB_TABLESPACES AS ts ON ts.SPACE = it.SPACE
-       WHERE it.NAME LIKE CONCAT(?, '/%')`,
-      [database]
-    );
-    const allocatedBytes = Number(rows[0].allocated_bytes);
-    if (Number.isFinite(allocatedBytes) && allocatedBytes > 0) {
-      return { bytes: allocatedBytes, source: 'INNODB_TABLESPACES.ALLOCATED_SIZE', isMetadataFallback: false, metadataBytes };
-    }
-  } catch (error) {
-    // MariaDB 10.3 的列集或普通应用账号的权限可能不支持该查询；使用兼容回退。
+// All settings and reads must use the same checked-out connection.
+async function freshTables(conn) {
+  let cacheMode = 'bypassed';
+  try { await conn.query('SET SESSION information_schema_stats_expiry = 0'); }
+  catch (e) {
+    if (e.code !== 'ER_UNKNOWN_SYSTEM_VARIABLE') throw e;
+    cacheMode = 'unsupported-native';
   }
-  return { bytes: metadataBytes, source: 'information_schema.TABLES.DATA_LENGTH + INDEX_LENGTH', isMetadataFallback: true, metadataBytes };
-}
-
-// 每张表：行数 / 数据长度 / 索引长度 / 空闲 / 总计
-async function tableStats() {
-  const rows = await rawQuery(
+  const [tables] = await conn.query(
     `SELECT TABLE_NAME AS table_name, TABLE_ROWS AS approx_rows,
-            COALESCE(DATA_LENGTH, 0) AS data_length,
-            COALESCE(INDEX_LENGTH, 0) AS index_length,
-            COALESCE(DATA_FREE, 0) AS data_free,
-            COALESCE(DATA_LENGTH, 0) + COALESCE(INDEX_LENGTH, 0) AS total_size
-     FROM information_schema.TABLES
-     WHERE TABLE_SCHEMA = ?
-     ORDER BY TABLE_NAME`,
-    [process.env.DB_NAME || 'passenger_flow_codex']
-  );
-  return rows;
+      COALESCE(DATA_LENGTH,0) AS data_length, COALESCE(INDEX_LENGTH,0) AS index_length,
+      COALESCE(DATA_FREE,0) AS data_free,
+      COALESCE(DATA_LENGTH,0)+COALESCE(INDEX_LENGTH,0) AS total_size
+     FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_TYPE='BASE TABLE'
+     ORDER BY TABLE_NAME`, [require('../config/settings').dbName()]);
+  const dataBytes = tables.reduce((n,t)=>n+Number(t.data_length),0);
+  const indexBytes = tables.reduce((n,t)=>n+Number(t.index_length),0);
+  return {bytes:dataBytes+indexBytes,dataBytes,indexBytes,metadataBytes:dataBytes+indexBytes,
+    source:'information_schema.TABLES (storage engine estimate)',cacheMode,
+    isMetadataFallback:false,tables};
+}
+async function databaseStorage() {
+  return require('../config/database').withConnection(freshTables);
+}
+async function databaseSize() { return (await databaseStorage()).bytes; }
+async function tableStats() { return (await databaseStorage()).tables; }
+async function collectStorage() {
+  return require('../config/database').withConnection(async conn => {
+    const storage = await freshTables(conn);
+    const [rows] = await conn.query('SELECT '+TRACKED_TABLES.map(t=>
+      '(SELECT COUNT(*) FROM `'+t+'`) AS `'+t+'`').join(','));
+    return {...storage,exactCounts:rows[0],database:require('../config/settings').dbName(),
+      sampledAt:new Date().toISOString()};
+  });
 }
 
 // 精确行数（关键表 COUNT(*)）
@@ -92,4 +77,4 @@ async function totalRows() {
   return Object.values(counts).reduce((sum, v) => sum + Number(v), 0);
 }
 
-module.exports = { TRACKED_TABLES, mysqlVersion, databaseSize, databaseStorage, tableStats, exactRowCounts, totalRows };
+module.exports = { freshTables, collectStorage, TRACKED_TABLES, mysqlVersion, databaseSize, databaseStorage, tableStats, exactRowCounts, totalRows };

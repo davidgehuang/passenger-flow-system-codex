@@ -54,6 +54,7 @@
       setStatus(`OK (${((Date.now() - start) / 1000).toFixed(1)}s)`, 'text-bg-success');
       renderResult(json.result);
       refreshStatus();
+      if(window.refreshDatabaseStorage)window.refreshDatabaseStorage();
     } catch (err) {
       setStatus('ERROR', 'text-bg-danger');
       renderResult({ error: err.message });
@@ -103,6 +104,7 @@
       setStatus('MARKER OK', 'text-bg-success');
       renderResult(json.result);
       refreshStatus();
+      if(window.refreshDatabaseStorage)window.refreshDatabaseStorage();
     } catch (err) {
       setStatus('ERROR', 'text-bg-danger');
       renderResult({ error: err.message });
@@ -122,6 +124,7 @@
       await callApi('/migration-lab/workload/start', body);
       setStatus('WORKLOAD STARTED', 'text-bg-success');
       refreshStatus();
+      if(window.refreshDatabaseStorage)window.refreshDatabaseStorage();
     } catch (err) {
       setStatus('ERROR', 'text-bg-danger');
       renderResult({ error: err.message });
@@ -134,6 +137,7 @@
       await callApi('/migration-lab/workload/stop', {});
       setStatus('WORKLOAD STOPPED', 'text-bg-warning');
       refreshStatus();
+      if(window.refreshDatabaseStorage)window.refreshDatabaseStorage();
     } catch (err) {
       setStatus('ERROR', 'text-bg-danger');
       renderResult({ error: err.message });
@@ -155,16 +159,6 @@
       if (json.status !== 'OK') return;
       const { overview, workload, markers } = json;
 
-      if (overview.exactCounts) {
-        const counts = overview.exactCounts;
-        document.getElementById('stat-db-size').textContent = overview.tableStorageMB;
-        document.getElementById('stat-db-size-source').textContent = overview.tableStorageSource + (overview.tableStorageIsMetadataFallback ? '（可能滞后）' : '');
-        document.getElementById('stat-total-rows').textContent = Object.values(counts)
-          .reduce((s, v) => s + Number(v), 0).toLocaleString('en-US');
-        document.getElementById('stat-flow-rows').textContent = Number(counts.flow_events).toLocaleString('en-US');
-        document.getElementById('stat-log-rows').textContent = Number(counts.device_status_logs).toLocaleString('en-US');
-        document.getElementById('stat-marker-rows').textContent = Number(counts.migration_markers).toLocaleString('en-US');
-      }
       document.getElementById('stat-last-op').textContent = overview.lastDbOp;
 
       // workload 状态

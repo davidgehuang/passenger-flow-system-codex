@@ -16,6 +16,7 @@
   <div class="container-fluid py-4">
     <h4 class="mb-3"><i class="bi bi-arrow-left-right"></i> 跨云数据库迁移实验控制台 / DTS Migration Lab</h4>
 
+    <%- include('partials/databaseStorage') %>
     <% if (!overview.exactCounts || Number(overview.exactCounts.stores) === 0 || Number(overview.exactCounts.devices) === 0) { %>
       <div class="alert alert-info">
         <i class="bi bi-info-circle-fill"></i>
@@ -52,11 +53,6 @@
           <div class="col-6 col-md-2"><div class="p-2 border rounded bg-light h-100">
             <div class="text-muted small">Database</div>
             <div class="fw-bold"><%= info.database %></div>
-          </div></div>
-          <div class="col-6 col-md-2"><div class="p-2 border rounded bg-light h-100">
-            <div class="text-muted small">InnoDB Table Space</div>
-            <div class="fw-bold"><span id="stat-db-size"><%= overview.tableStorageMB %></span> MB</div>
-            <div class="text-muted small" id="stat-db-size-source"><%= overview.tableStorageSource %><%= overview.tableStorageIsMetadataFallback ? '（可能滞后）' : '' %></div>
           </div></div>
           <div class="col-6 col-md-2"><div class="p-2 border rounded bg-light h-100">
             <div class="text-muted small">Total Rows</div>

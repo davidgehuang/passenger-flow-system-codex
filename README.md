@@ -1,6 +1,6 @@
 # 客流管理与数据库迁移实验系统
 
-版本：0.3.0；交付目录：`passenger-flow-system-codex`。
+版本：0.3.1；交付目录：`passenger-flow-system-codex`。
 
 这是基于 Node.js、Express、EJS、MySQL/MariaDB 的客流管理及数据库迁移实验应用。包含门店、设备、客流明细、统计看板、造数、持续负载、迁移标记、停写保护和全表一致性检查。当前没有真实摄像头接入、访客去重算法、企业级权限分工或高可用集群。
 
@@ -38,3 +38,5 @@ AWS 资源创建、腾讯云 DTS 真实迁移和 VMware 服务器完整安装需
 不要提交 `.env*`（`.env.example` 除外）、`.local-mysql`、`node_modules`、`reports`、数据库备份或私钥。源码导出不会带入旧 Git 历史。当前项目已有独立 Git 仓库，未经你的操作不会自动推送。
 
 测试会创建并保留本次专用的 `pf_test_*` 数据库。生成数据、批量更新、批量删除和持续负载会真实写入当前配置的数据库，请仅对实验库使用。
+
+容量自动刷新及本次代码审查：[修复、部署与验收说明](docs/容量修复与代码审查说明-20260918.md)。只读诊断运行 `npm run db:storage`，Windows 可双击 `diagnose-storage.bat`。

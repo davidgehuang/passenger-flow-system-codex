@@ -10,6 +10,16 @@ const flowEventRoutes = require('./flowEventRoutes');
 const healthRoutes = require('./healthRoutes');
 const migrationRoutes = require('./migrationRoutes');
 
+router.use((req,res,next)=>{
+  if(!['GET','HEAD','OPTIONS'].includes(req.method))res.on('finish',()=>{
+    if(res.statusCode<400)require('../services/storageService').invalidate();
+  });
+  next();
+});
+router.get('/api/database-storage', async (req,res,next)=>{
+  try { res.set('Cache-Control','no-store');res.json(await require('../services/storageService').get()); }
+  catch(e){next(e);}
+});
 router.get('/', dashboardController.index);
 router.use('/stores', storeRoutes);
 router.use('/devices', deviceRoutes);

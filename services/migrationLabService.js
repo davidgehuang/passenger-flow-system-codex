@@ -127,12 +127,13 @@ const deleteRows=(n,o)=>operate('DELETE',n,o);
 async function generateSize(targetMB,{historyDays=0}={}) {
   assertWritable();
   const plan=generatePlan(targetMB);
-  const before=await stats.databaseStorage();
+  const before=await stats.databaseStorage().catch(()=>null);
   const result=await insertRows(plan.rows,{label:'GENERATE_LOGICAL_'+plan.mb+'MB',logicalBytesPerRow:plan.logicalBytesPerRow,historyDays});
-  const after=await stats.databaseStorage();
+  const after=await stats.databaseStorage().catch(()=>null);
   return {...result,operation:'GENERATE',targetMB:plan.mb,targetBytes:plan.targetBytes,maxRows:plan.rows,
     logicalBytesPerRow:plan.logicalBytesPerRow,logicalPayloadBytes:plan.logicalPayloadBytes,
-    measuredTableStorageGrowthMB:Number(((after.bytes-before.bytes)/1048576).toFixed(2)),tableStorageSource:after.source,
+    measuredTableStorageGrowthMB:before&&after?Number(((after.bytes-before.bytes)/1048576).toFixed(2)):null,tableStorageSource:after?.source||null,
+    storageStatus:before&&after?'ok':'unavailable',
     note:'已写入指定逻辑 metadata 负载；RDS 实例实际可用空间请以 CloudWatch FreeStorageSpace 为准'};
 }
 async function purgeSize(targetMB) {
@@ -142,10 +143,15 @@ async function purgeSize(targetMB) {
 }
 async function createMarker(type,message='',rowReference=null) { assertWritable();return markers.create({type,message,operationType:'MARKER',rowReference}); }
 async function getOverview(){
-  const [dbVersion,storage,exactCounts,currentBatch,lastBatches]=await Promise.all([stats.mysqlVersion(),stats.databaseStorage(),stats.exactRowCounts(),batch.currentBatch(),batch.latest(1)]);
+  const [dbVersion,storageResult,currentBatch,lastBatches]=await Promise.all([
+    stats.mysqlVersion(),require('./storageService').get(),batch.currentBatch(),batch.latest(1)]);
   const last=lastBatches[0];
-  return {environment:process.env.APP_ENV_NAME||'LOCAL',appVersion:process.env.APP_VERSION||'',dbVersion,tableStorageMB:Number((storage.bytes/1048576).toFixed(2)),tableStorageSource:storage.source,tableStorageIsMetadataFallback:storage.isMetadataFallback,exactCounts,currentBatch,
+  return {environment:process.env.APP_ENV_NAME||'LOCAL',appVersion:process.env.APP_VERSION||'',
+    dbVersion,storageResult,exactCounts:storageResult.sample?.exactCounts||null,currentBatch,
     lastDbOp:last?last.operation_type+' ('+last.status+') @ '+(last.completed_at||last.started_at):'-'};
 }
-async function getMigrationCheckData(){const [dbVersion,storage,tableStats]=await Promise.all([stats.mysqlVersion(),stats.databaseStorage(),stats.tableStats()]);return {dbVersion,storage,tableStats};}
+async function getMigrationCheckData(){
+  const [dbVersion,storageResult]=await Promise.all([stats.mysqlVersion(),require('./storageService').get()]);
+  return {dbVersion,storageResult,tableStats:storageResult.sample?.tables||[]};
+}
 module.exports={insertRows,updateRows,deleteRows,generateSize,purgeSize,createMarker,getOverview,getMigrationCheckData,MAX_CUSTOM_ROWS,_internal:{sha256,applyHourly,generatedMetadata,generatePlan}};

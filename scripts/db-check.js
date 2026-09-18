@@ -40,35 +40,17 @@ async function main() {
     printCheck('MySQL Version', 'PASS', versionRows[0].v);
 
     const dbName = process.env.DB_NAME || 'passenger_flow_codex';
-    const [sizeRows] = await conn.query(
-      `SELECT COALESCE(SUM(DATA_LENGTH + INDEX_LENGTH), 0) AS total
-       FROM information_schema.TABLES WHERE TABLE_SCHEMA = ?`,
-      [dbName]
-    );
-    printCheck('Table metadata estimate', 'PASS', `${formatMb(sizeRows[0].total)} MB (DATA_LENGTH + INDEX_LENGTH; may be stale)`);
-    try {
-      const [spaceRows] = await conn.query(
-        `SELECT COALESCE(SUM(ts.ALLOCATED_SIZE), 0) AS total
-         FROM information_schema.INNODB_TABLES AS it
-         JOIN information_schema.INNODB_TABLESPACES AS ts ON ts.SPACE = it.SPACE
-         WHERE it.NAME LIKE CONCAT(?, '/%')`,
-        [dbName]
-      );
-      const allocated = Number(spaceRows[0].total);
-      if (allocated > 0) printCheck('InnoDB allocated table space', 'PASS', `${formatMb(allocated)} MB (ALLOCATED_SIZE)`);
-      else printCheck('InnoDB allocated table space', 'WARNING', 'no value returned; use the metadata estimate or CloudWatch');
-    } catch (error) {
-      printCheck('InnoDB allocated table space', 'WARNING', `unavailable (${error.code || 'unsupported'}); metadata estimate remains available`);
-    }
+    const storage = await require('../models/statsModel').freshTables(conn);
+    printCheck('数据库容量（存储引擎估算）', 'PASS', `${formatMb(storage.bytes)} MiB; ${storage.bytes} bytes; cache=${storage.cacheMode}`);
 
     printSection(`每张表统计（共 ${TABLES.length} 张）`);
     console.log(
       'table'.padEnd(26) +
         'rows'.padStart(12) +
-        'data(MB)'.padStart(12) +
-        'index(MB)'.padStart(12) +
-        'free(MB)'.padStart(12) +
-        'total(MB)'.padStart(12) +
+        'data(MiB)'.padStart(12) +
+        'index(MiB)'.padStart(12) +
+        'free(MiB)'.padStart(12) +
+        'total(MiB)'.padStart(12) +
         'min_id'.padStart(12) +
         'max_id'.padStart(12)
     );
