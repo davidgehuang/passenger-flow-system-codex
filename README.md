@@ -1,6 +1,6 @@
 # 客流管理与数据库迁移实验系统
 
-版本：0.3.1；交付目录：`passenger-flow-system-codex`。
+版本：0.3.2；交付目录：`passenger-flow-system-codex`。
 
 这是基于 Node.js、Express、EJS、MySQL/MariaDB 的客流管理及数据库迁移实验应用。包含门店、设备、客流明细、统计看板、造数、持续负载、迁移标记、停写保护和全表一致性检查。当前没有真实摄像头接入、访客去重算法、企业级权限分工或高可用集群。
 
@@ -40,3 +40,7 @@ AWS 资源创建、腾讯云 DTS 真实迁移和 VMware 服务器完整安装需
 测试会创建并保留本次专用的 `pf_test_*` 数据库。生成数据、批量更新、批量删除和持续负载会真实写入当前配置的数据库，请仅对实验库使用。
 
 容量自动刷新及本次代码审查：[修复、部署与验收说明](docs/容量修复与代码审查说明-20260918.md)。只读诊断运行 `npm run db:storage`，Windows 可双击 `diagnose-storage.bat`。
+
+## 批量门店／设备扩容
+
+进入 Stores 或 Devices → **批量初始化／扩容**，支持目标补齐、新增门店和指定门店加设备。命令行：`npm run db:base-data -- --mode ensure --stores 50 --devices-per-store 4 --dry-run`；Windows 提供 `base-data.bat` 参数入口。详见 [使用与重试说明](docs/基础资料初始化与扩容-20260919.md) 和 [实测报告](docs/基础资料扩容测试报告-20260919.md)。

@@ -7,7 +7,7 @@ const batch = require('../models/batchModel');
 const audit = require('../models/auditModel');
 const markers = require('../models/markerModel');
 const stats = require('../models/statsModel');
-const { uuid, randInt, pick, sha256 } = require('../util/helpers');
+const { uuid, randInt, pick, sha256, sampleWithoutReplacement } = require('../util/helpers');
 const MAX_CUSTOM_ROWS = 200000;
 const DEFAULT_LOGICAL_BYTES_PER_ROW = 512;
 function rowCount(n) { return integer(n,'rows',1,MAX_CUSTOM_ROWS,1000); }
@@ -82,7 +82,7 @@ async function operate(op,n,{label=op,historyDays=0,logicalBytesPerRow=0}={}) {
           after=await rawQuery('SELECT * FROM flow_events WHERE trace_id IN (?) ORDER BY id',[payload.map(r=>r[7])]);
           if(after.length!==count)throw new Error('插入后行数不一致');
           await applyHourly(after,1);
-          const logRows=selected.slice(0,Math.min(10,Math.floor(count/8))).map(d=>[d.device_id,mysql.raw('NOW(6)'),25,40,10,35,'NORMAL','simulated heartbeat',JSON.stringify({source:'migration-lab'})]);
+          const logRows=sampleWithoutReplacement(selected,Math.min(10,Math.floor(count/8))).map(d=>[d.device_id,mysql.raw('NOW(6)'),25,40,10,35,'NORMAL','simulated heartbeat',JSON.stringify({source:'migration-lab'})]);
           if(logRows.length)await rawQuery('INSERT INTO device_status_logs (device_id,log_time,cpu_usage,memory_usage,network_latency,temperature,status,message,metadata) VALUES ?',[logRows]);
         }else{
           const clause=cursor===null?'':'WHERE id < ? ';

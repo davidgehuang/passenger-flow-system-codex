@@ -9,7 +9,7 @@ module.exports=function validation(req,res,next){
   try{
     for(const [key,value]of Object.entries(req.query)){
       if(typeof value!=='string')throw new Error('查询参数 '+key+' 必须是单个字符串');
-      if(value.length>255)throw new Error('查询参数过长');
+      if(value.length>(req.path==='/api/base-data/preview'&&key==='payload'?12000:255))throw new Error('查询参数过长');
     }
     if(req.query.page!==undefined)integer(req.query.page,'page',1,1000000,1);
     for(const k of ['storeId'])if(req.query[k])integer(req.query[k],k,1,Number.MAX_SAFE_INTEGER,1);

@@ -20,6 +20,7 @@ router.get('/api/database-storage', async (req,res,next)=>{
   try { res.set('Cache-Control','no-store');res.json(await require('../services/storageService').get()); }
   catch(e){next(e);}
 });
+router.use(require('./baseDataRoutes'));
 router.get('/', dashboardController.index);
 router.use('/stores', storeRoutes);
 router.use('/devices', deviceRoutes);

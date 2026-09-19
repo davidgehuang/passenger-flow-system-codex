@@ -60,7 +60,18 @@ function pick(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+function sampleWithoutReplacement(items, count, random = Math.random) {
+  const copy = items.slice();
+  const n = Math.min(count, copy.length);
+  for (let i=0; i<n; i++) {
+    const j=i+Math.floor(random()*(copy.length-i));
+    [copy[i],copy[j]]=[copy[j],copy[i]];
+  }
+  return copy.slice(0,n);
+}
+
 module.exports = {
+  sampleWithoutReplacement,
   uuid,
   sha256,
   sleep,
