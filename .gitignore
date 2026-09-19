@@ -38,3 +38,5 @@ reports/*.json
 .DS_Store
 .idea/
 .vscode/
+
+# ---- Test env ----
