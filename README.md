@@ -23,7 +23,7 @@
 
 ## 文档
 
-1. [使用手册](docs/使用手册.md)：Windows、VMware/Rocky 8、AWS、腾讯云 DTS、日常操作与排错。
+1. [使用手册](docs/使用手册.md)：Windows、VMware/Rocky 8/9、AWS、腾讯云 DTS、日常操作与排错。Rocky 默认 Nginx 80 → 本机 Node 3030 的安装和检查见第四章。
 2. [修复说明与验证报告](docs/修复说明与验证报告.md)：需求、问题根因、修复范围、实测证据和未验证边界。
 3. [GitHub 上传与服务器拉取指南](docs/GitHub上传与服务器拉取指南.md)：新建仓库、首次推送、后续更新、其他服务器拉取与部署。
 

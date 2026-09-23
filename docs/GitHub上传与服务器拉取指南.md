@@ -104,7 +104,7 @@ node --version
 sudo bash deploy/install.sh
 ```
 
-安装脚本把应用准备到 `/opt/passenger-flow-codex`。服务部署目录和 Git 工作目录可以不同，这是有意设计的：配置和运行数据留在部署目录。按照《使用手册》填写服务器专属 `.env`、验证连接，再启动服务。不要复制 Windows 的 `node_modules`、便携数据库或 `.env.local` 到 Linux。
+安装脚本把应用准备到 `/opt/passenger-flow-codex`，并把仓库 `deploy/nginx/passenger-flow.conf` 安装到 Rocky 默认站点的 `/etc/nginx/default.d/passenger-flow.conf`（80 → 本机 3030）。服务部署目录和 Git 工作目录可以不同，这是有意设计的：配置和运行数据留在部署目录。按照《使用手册》填写服务器专属 `.env`、验证连接，先启动 `passenger-flow`，再执行 `sudo nginx -t && sudo systemctl enable --now nginx`。通过 `curl -fsS http://127.0.0.1/health` 检查代理。不要复制 Windows 的 `node_modules`、便携数据库或 `.env.local` 到 Linux；不要对公网开放明文 HTTP 登录。
 
 首次安装**源端新库**才执行初始化和种子；**DTS 目标端**不得提前生成演示数据。
 
@@ -137,6 +137,8 @@ sudo -u passenger env ENV_FILE=/opt/passenger-flow-codex/.env node /opt/passenge
 sudo systemctl start passenger-flow
 sudo systemctl status passenger-flow --no-pager
 curl -fsS http://127.0.0.1:3030/health
+sudo nginx -t
+curl -fsS http://127.0.0.1/health
 ```
 
 先在测试环境验证新提交，再更新正式环境。存在持续负载时先停止并等在途操作归零。若 Git 报本地修改或不能 fast-forward，先保存并解决差异，**不要执行 reset --hard、clean -fd 或强推**来跳过问题。

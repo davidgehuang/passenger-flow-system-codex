@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 仅准备应用文件与依赖：不建库、不启动服务、不修改防火墙。
+# 准备应用、systemd 和 Rocky 默认 Nginx 代理：不建库、不启动服务、不修改防火墙。
 set -euo pipefail
 APP_DIR="${APP_DIR:-/opt/passenger-flow-codex}"
 APP_USER="passenger"
@@ -47,7 +47,6 @@ chmod 600 "$APP_DIR/.env"
 runuser -u "$APP_USER" -- env HOME=/var/lib/passenger PATH="$NODE_DIR:/usr/bin" "$NPM_BIN" ci --omit=dev --prefix "$APP_DIR"
 install -m 644 "$APP_DIR/deploy/systemd/passenger-flow.service" /etc/systemd/system/passenger-flow.service
 systemctl daemon-reload
-# 配置先写为样例，用户确认端口与现有 Nginx 后再启用。
-install -m 644 "$APP_DIR/deploy/nginx/passenger-flow.conf" /etc/nginx/conf.d/passenger-flow.conf.example
-echo "准备完成。未执行建库、种子生成或服务启动。"
-echo "下一步填写 $APP_DIR/.env，按 docs/使用手册.md 的源端或目标端流程操作。"
+bash "$APP_DIR/deploy/setup-nginx.sh"
+echo "准备完成。未执行建库、种子生成、服务启动或防火墙开放。"
+echo "下一步填写 $APP_DIR/.env，启动 passenger-flow，再启用 Nginx；参见 docs/使用手册.md。"
