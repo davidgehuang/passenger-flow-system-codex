@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 准备应用、systemd 和 Rocky 默认 Nginx 代理：不建库、不启动服务、不修改防火墙。
+# 准备应用、systemd 和专用 Nginx 代理：不建库、不启动服务、不修改防火墙。
 set -euo pipefail
 APP_DIR="${APP_DIR:-/opt/passenger-flow-codex}"
 APP_USER="passenger"
